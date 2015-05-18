@@ -33,13 +33,13 @@
 
 #include "lockless_queue.h"
 
-threading::lockless_queue<std::string>* g_s;
+threading::lockless_queue<std::string>* g_lockless;
 
 void writeSomething(std::string what, int l_itemCount)
 {
 	for (; l_itemCount > 0; --l_itemCount)
 	{
-		g_s->produce(std::move(what));
+		g_lockless->produce(std::move(what));
 	}
 }
 
@@ -50,8 +50,8 @@ void getSomething(std::atomic<bool>& running)
 	std::shared_ptr<std::string> result;
 	do
 	{
-		result = g_s->consume(false);
-	} while (result || running);
+		result = g_lockless->consume(true);
+	} while (running || result);
 
 }
 
@@ -80,9 +80,11 @@ int main()
 	{
 		for (int l_curThreadCount = l_minThreadCount; l_curThreadCount <= l_maxThreadCount; ++l_curThreadCount)
 		{
-			g_s = new threading::lockless_queue<std::string>();
-			std::atomic<bool> l_running = false;
+			g_lockless = new threading::lockless_queue<std::string>();
 
+			std::atomic<bool> l_running = true;
+			std::thread l_reader1(getSomething, std::ref(l_running));
+			std::thread l_reader2(getSomething, std::ref(l_running));
 
 			l_iCntStart = system_clock::now();
 			l_threadList.push(std::thread(writeSomething, "This is a test string:)", l_curItemCount));
@@ -92,8 +94,11 @@ int main()
 				l_threadList.pop();
 			}
 
-			std::thread l_reader1(getSomething, std::ref(l_running));
-			std::thread l_reader2(getSomething, std::ref(l_running));
+
+			l_running = false;
+
+			delete g_lockless;
+			g_lockless = nullptr;
 
 			l_reader1.join();
 			l_reader2.join();
